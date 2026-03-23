@@ -1,0 +1,17 @@
+{
+  "name": "Monitor TPMS Camiones",
+  "supportEmail": "soporte@tecnoflotas.com",
+  "version": "1.0.0",
+  "isSigned": false,
+  "items": [
+    {
+      "url": "https://josetecnycom-ai.github.io/tpms-camiones/index.html",
+      "path": "EngineMaintenanceLink/",
+      "menuName": {
+        "en": "Truck Tire Pressure",
+        "es": "Presión Neumáticos Camiones"
+      },
+      "icon": "https://www.geotab.com/images/support/v-6-icon.svg"
+    }
+  ]
+}
