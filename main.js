@@ -16,13 +16,13 @@ geotab.addin.tirePressureAddin = function (api, state) {
     function calculateStatus(val, sideVal) {
         if (!val || val <= 0) return { color: "#d1d8e0", weight: 0, msg: "" }; 
         const bar = val / 100000;
-        let weight = 1, color = "#20bf6b", msg = "";
+        let weight = 1, color = "#576574", msg = ""; // Color modificado a gris oscuro para óptimo
 
         // Umbrales para vehículos pesados
         if (bar < 7.0 || bar > 9.5) { weight = 3; color = "#eb3b5a"; } 
         else if (bar < 7.5 || bar > 9.0) { weight = 2; color = "#f7b731"; }
 
-        // Diferencia de presión (ideal para detectar un neumático pinchado en ruedas gemelas)
+        // Diferencia de presión
         if (sideVal && sideVal > 0 && Math.abs((val - sideVal) / sideVal) > 0.05) {
             weight = 3; color = "#eb3b5a"; msg = "Descompensación en eje > 5%";
         }
@@ -37,7 +37,7 @@ geotab.addin.tirePressureAddin = function (api, state) {
             <div style="background: white; border-radius: 8px; padding: 15px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); font-family: sans-serif; font-size: 13px; color: #2d3436; border-left: 4px solid #0984e3;">
                 <strong style="display: block; margin-bottom: 10px; font-size: 14px;">Leyenda de Alertas Camiones (Datos última semana):</strong>
                 <div style="display: flex; flex-wrap: wrap; gap: 15px; align-items: center;">
-                    <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 16px; height: 16px; background: #20bf6b; border-radius: 4px;"></div> Óptimo (7.5 - 9.0 Bar)</div>
+                    <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 16px; height: 16px; background: #576574; border-radius: 4px;"></div> Óptimo (7.5 - 9.0 Bar)</div>
                     <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 16px; height: 16px; background: #f7b731; border-radius: 4px;"></div> Aviso Leve</div>
                     <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 16px; height: 16px; background: #eb3b5a; border-radius: 4px;"></div> Alerta Crítica</div>
                     <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 16px; height: 16px; border: 2px solid #eb3b5a; background: #ffeaa7; border-radius: 4px;"></div> Desviación > 5%</div>
@@ -49,9 +49,10 @@ geotab.addin.tirePressureAddin = function (api, state) {
 
         vehicles.forEach(v => {
             const hasCritical = v.maxWeight === 3;
-            const fmt = (val) => val ? (val / 100000).toFixed(2) : '--';
+            // Formatear a 1 decimal
+            const fmtVal = (val) => val ? (val / 100000).toFixed(1) + " bar" : "-- bar";
+            const valTextColor = (c) => c === "#576574" ? "#747d8c" : c;
             
-            // Recopilamos alertas de todos los neumáticos
             let alerts = [...new Set([
                 v.status.E1_Izq.msg, v.status.E1_Der.msg, 
                 v.status.E2_ExtIzq.msg, v.status.E2_IntIzq.msg,
@@ -62,27 +63,75 @@ geotab.addin.tirePressureAddin = function (api, state) {
                 ? `<div style="background: #ffeaa7; color: #eb3b5a; font-size: 11px; font-weight: bold; padding: 6px; border-radius: 4px; margin-bottom: 15px; min-height: 28px;">⚠️ ${alerts.join('<br>')}</div>` 
                 : `<div style="height: 40px;"></div>`; 
 
-            // Estilo de los neumáticos más estrecho para encajar las ruedas gemelas
-            const tireStyle = "position: absolute; width: 34px; height: 50px; border-radius: 4px; border: 2px solid #2d3436; z-index: 2; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: bold; text-shadow: 1px 1px 2px #000; box-sizing: border-box;";
+            // Tarjeta más ancha (360px) para acomodar la nueva disposición
+            const cardStyle = `background: white; border-radius: 12px; padding: 20px 10px; width: 360px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); text-align: center; border: ${hasCritical ? '2px solid #eb3b5a' : '1px solid #d1d8e0'};`;
+            
+            // Neumáticos más similares a la imagen (sin texto dentro, más discretos)
+            const tireStyle = "position: absolute; width: 22px; height: 48px; border-radius: 6px; z-index: 2; box-shadow: inset -2px -2px 4px rgba(0,0,0,0.2), inset 2px 2px 4px rgba(255,255,255,0.2);";
 
-            // Diseño ensanchado para alojar los 6 neumáticos
+            // Helper function to draw lines and text
+            const drawLabel = (side, topY, tireCenterX, val, tireColor) => {
+                const isLeft = side === 'left';
+                const text = fmtVal(val);
+                const textColor = valTextColor(tireColor);
+                
+                if (isLeft) {
+                    const lineLen = tireCenterX - 75; 
+                    return `
+                        <div style="position: absolute; top: ${topY}px; left: 75px; width: ${lineLen}px; border-bottom: 1px solid ${textColor}; z-index: 0; opacity: 0.6;"></div>
+                        <div style="position: absolute; top: ${topY - 14}px; left: 10px; width: 60px; text-align: right; font-size: 14px; color: ${textColor}; font-weight: 600; font-family: sans-serif;">${text}</div>
+                    `;
+                } else {
+                    const lineLen = tireCenterX - 75; 
+                    return `
+                        <div style="position: absolute; top: ${topY}px; right: 75px; width: ${lineLen}px; border-bottom: 1px solid ${textColor}; z-index: 0; opacity: 0.6;"></div>
+                        <div style="position: absolute; top: ${topY - 14}px; right: 10px; width: 60px; text-align: left; font-size: 14px; color: ${textColor}; font-weight: 600; font-family: sans-serif;">${text}</div>
+                    `;
+                }
+            };
+
             html += `
-                <div style="background: white; border-radius: 12px; padding: 15px; width: 280px; box-shadow: 0 4px 8px rgba(0,0,0,0.05); text-align: center; border: ${hasCritical ? '2px solid #eb3b5a' : '1px solid #d1d8e0'}">
-                    <div style="font-size: 14px; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;"><strong>${v.name}</strong></div>
+                <div style="${cardStyle}">
+                    <div style="font-size: 16px; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #2d3436;"><strong>${v.name}</strong></div>
                     ${alertHtml}
-                    <div style="position: relative; width: 200px; height: 200px; margin: 0 auto;">
-                        <div style="position: absolute; top: 10px; left: 70px; width: 60px; height: 180px; background: #dfe6e9; border-radius: 10px; border: 2px solid #b2bec3; z-index: 1;"></div>
+                    
+                    <div style="position: relative; width: 360px; height: 260px; margin: 0 auto; user-select: none;">
                         
-                        <div style="${tireStyle} top: 25px; left: 25px; background:${v.status.E1_Izq.color}">${fmt(v.pressures.E1_Izq)}</div>
-                        <div style="${tireStyle} top: 25px; right: 25px; background:${v.status.E1_Der.color}">${fmt(v.pressures.E1_Der)}</div>
+                        <!-- Contenedor central 200px para el dibujo del camión -->
+                        <div style="position: absolute; left: 80px; width: 200px; height: 260px; z-index: 1;">
+                            <svg width="200" height="260" viewBox="0 0 200 260" style="position:absolute; left:0; top:0; z-index:1;">
+                                <!-- mirrors -->
+                                <ellipse cx="30" cy="45" rx="5" ry="3" fill="#f4f6f9" stroke="#b2bec3" stroke-width="1.5" transform="rotate(-30 30 45)" />
+                                <ellipse cx="170" cy="45" rx="5" ry="3" fill="#f4f6f9" stroke="#b2bec3" stroke-width="1.5" transform="rotate(30 170 45)" />
+                                <!-- cabin structure matches the image attached -->
+                                <path d="M 40 40 Q 40 20 60 20 L 140 20 Q 160 20 160 40 L 160 100 L 130 148 L 70 148 L 40 100 Z" fill="#f4f6f9" stroke="#b2bec3" stroke-width="1.5"/>
+                                <!-- trailer lower chassis part -->
+                                <rect x="75" y="145" width="50" height="80" rx="6" fill="#f4f6f9" stroke="#b2bec3" stroke-width="1.5"/>
+                            </svg>
+                            
+                            <!-- Eje 1 (Frontal) -->
+                            <div style="${tireStyle} top: 60px; left: 35px; background:${v.status.E1_Izq.color}"></div>
+                            <div style="${tireStyle} top: 60px; right: 35px; background:${v.status.E1_Der.color}"></div>
+                            
+                            <!-- Eje 2 (Trasero) -->
+                            <div style="${tireStyle} top: 170px; left: 25px; background:${v.status.E2_ExtIzq.color}"></div>
+                            <div style="${tireStyle} top: 170px; left: 50px; background:${v.status.E2_IntIzq.color}"></div>
+                            
+                            <div style="${tireStyle} top: 170px; right: 50px; background:${v.status.E2_IntDer.color}"></div>
+                            <div style="${tireStyle} top: 170px; right: 25px; background:${v.status.E2_ExtDer.color}"></div>
+                        </div>
+
+                        <!-- Líneas y Etiquetas Frontales -->
+                        ${drawLabel('left', 85, 126, v.pressures.E1_Izq, v.status.E1_Izq.color)}
+                        ${drawLabel('right', 85, 126, v.pressures.E1_Der, v.status.E1_Der.color)}
+
+                        <!-- Líneas y Etiquetas Traseras (Eje 2) -->
+                        ${drawLabel('left', 182, 141, v.pressures.E2_IntIzq, v.status.E2_IntIzq.color)}
+                        ${drawLabel('left', 205, 116, v.pressures.E2_ExtIzq, v.status.E2_ExtIzq.color)}
                         
-                        <div style="${tireStyle} bottom: 25px; left: 0px; background:${v.status.E2_ExtIzq.color}">${fmt(v.pressures.E2_ExtIzq)}</div>
-                        <div style="${tireStyle} bottom: 25px; left: 36px; background:${v.status.E2_IntIzq.color}">${fmt(v.pressures.E2_IntIzq)}</div>
-                        
-                        <div style="${tireStyle} bottom: 25px; right: 36px; background:${v.status.E2_IntDer.color}">${fmt(v.pressures.E2_IntDer)}</div>
-                        <div style="${tireStyle} bottom: 25px; right: 0px; background:${v.status.E2_ExtDer.color}">${fmt(v.pressures.E2_ExtDer)}</div>
+                        ${drawLabel('right', 182, 141, v.pressures.E2_IntDer, v.status.E2_IntDer.color)}
+                        ${drawLabel('right', 205, 116, v.pressures.E2_ExtDer, v.status.E2_ExtDer.color)}
                     </div>
-                    <div style="font-size: 10px; color: #636e72; margin-top: 10px;">BAR</div>
                 </div>`;
         });
         container.innerHTML = html + '</div>';
@@ -97,7 +146,6 @@ geotab.addin.tirePressureAddin = function (api, state) {
             api.call("Get", { typeName: "Device" }, function (devices) {
                 const fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
                 
-                // Hacemos 6 llamadas a la API (una por cada ID de neumático de camión)
                 const calls = Object.values(diagIds).map(id => ["Get", {
                     typeName: "StatusData",
                     search: { diagnosticSearch: { id: id }, fromDate: fromDate }
@@ -105,7 +153,6 @@ geotab.addin.tirePressureAddin = function (api, state) {
 
                 api.multiCall(calls, function (results) {
                     const masterData = {};
-                    // Inicializamos el objeto con los 6 neumáticos en null
                     devices.forEach(d => masterData[d.id] = { E1_Izq: null, E1_Der: null, E2_ExtIzq: null, E2_IntIzq: null, E2_IntDer: null, E2_ExtDer: null });
 
                     const keys = ['E1_Izq', 'E1_Der', 'E2_ExtIzq', 'E2_IntIzq', 'E2_IntDer', 'E2_ExtDer'];
@@ -124,10 +171,8 @@ geotab.addin.tirePressureAddin = function (api, state) {
 
                     const fleetData = devices.map(d => {
                         const p = masterData[d.id];
-                        // Comparamos desviaciones en el eje delantero entre ellos
                         const s_E1_Izq = calculateStatus(p.E1_Izq, p.E1_Der);
                         const s_E1_Der = calculateStatus(p.E1_Der, p.E1_Izq);
-                        // En el eje trasero comparamos las ruedas gemelas entre sí (Ext vs Int)
                         const s_E2_ExtIzq = calculateStatus(p.E2_ExtIzq, p.E2_IntIzq);
                         const s_E2_IntIzq = calculateStatus(p.E2_IntIzq, p.E2_ExtIzq);
                         const s_E2_IntDer = calculateStatus(p.E2_IntDer, p.E2_ExtDer);
