@@ -13,15 +13,26 @@ geotab.addin.tirePressureAddin = function (api, state) {
         E2_ExtDer: "aDHfNLzHx0USy7isxSHgT1Q"
     };
 
+    const diagTempIds = {
+        E1_Izq:    "aMc7Tbwr7oEG_65ZlQIhe8A",
+        E1_Der:    "a1ZcS5E35KkOVBXxcqSCihQ",
+        E2_ExtIzq: "aB1AI1v7VZEuEpL9DL2pX5w",
+        E2_IntIzq: "aJ6V9PwpaWEK6YwvKSLxuDg",
+        E2_IntDer: "ajfPPsCzHZkOMSeHqdB122g",
+        E2_ExtDer: "alXGwTauFBkq48G840Hni1g"
+    };
+
     // ─── Configuración de umbrales (editable via modal) ───────────────────────
-    const STORAGE_KEY = "tpms_camiones_config";
+    const STORAGE_KEY = "tpms_camiones_config_v1_3";
 
     const defaultConfig = {
         optMin:    7.5,
         optMax:    9.0,
         warnMin:   7.0,
         warnMax:   9.5,
-        devPct:    5        // % de descompensación entre ruedas gemelas
+        devPct:    5,       // % de descompensación entre ruedas gemelas
+        tempWarn:  75,      // °C inicio de aviso
+        tempCrit:  85       // °C crítica
     };
 
     function loadConfig() {
@@ -38,18 +49,27 @@ geotab.addin.tirePressureAddin = function (api, state) {
     let cfg = loadConfig();
 
     // ─── Lógica de estado ──────────────────────────────────────────────────────
-    function calculateStatus(val, sideVal) {
+    function calculateStatus(val, sideVal, tempVal) {
         if (!val || val <= 0) return { color: "#d1d8e0", weight: 0, msg: "" };
         const bar = val / 100000;
-        let weight = 1, color = "#576574", msg = "";
+        let weight = 1, color = "#576574", msgs = [];
 
-        if (bar < cfg.warnMin || bar > cfg.warnMax) { weight = 3; color = "#eb3b5a"; }
-        else if (bar < cfg.optMin || bar > cfg.optMax) { weight = 2; color = "#f7b731"; }
+        // Presión
+        if (bar < cfg.warnMin || bar > cfg.warnMax) { weight = 3; color = "#eb3b5a"; msgs.push("Presión Crítica"); }
+        else if (bar < cfg.optMin || bar > cfg.optMax) { weight = Math.max(weight, 2); if (color !== "#eb3b5a") color = "#f7b731"; msgs.push("Presión de Aviso"); }
 
+        // Descompensación en eje
         if (sideVal && sideVal > 0 && Math.abs((val - sideVal) / sideVal) > cfg.devPct / 100) {
-            weight = 3; color = "#eb3b5a"; msg = `Descompensación en eje > ${cfg.devPct}%`;
+            weight = 3; color = "#eb3b5a"; msgs.push(`Descompensación en eje > ${cfg.devPct}%`);
         }
-        return { color, weight, msg };
+
+        // Temperatura
+        if (tempVal !== null && tempVal !== undefined && tempVal > 0) {
+            if (tempVal >= cfg.tempCrit) { weight = 3; color = "#eb3b5a"; msgs.push(`Temp. Crítica (${Math.round(tempVal)}°C)`); }
+            else if (tempVal >= cfg.tempWarn) { weight = Math.max(weight, 2); if (color !== "#eb3b5a") color = "#f7b731"; msgs.push(`Temp. Alta (${Math.round(tempVal)}°C)`); }
+        }
+
+        return { color, weight, msg: msgs.join(" | ") };
     }
 
     // ─── Modal de configuración ────────────────────────────────────────────────
@@ -61,13 +81,13 @@ geotab.addin.tirePressureAddin = function (api, state) {
         overlay.style.cssText = `
             display:none; position:fixed; inset:0; z-index:9999;
             background:rgba(0,0,0,0.45); backdrop-filter:blur(3px);
-            align-items:center; justify-content:center;
+            align-items:center; justify-content:center; overflow-y:auto;
         `;
 
         overlay.innerHTML = `
             <div style="
-                background:#fff; border-radius:16px; padding:32px 28px;
-                width:380px; max-width:95vw; box-shadow:0 20px 60px rgba(0,0,0,0.25);
+                background:#fff; border-radius:16px; padding:32px 28px; margin: 20px 0;
+                width:400px; max-width:95vw; box-shadow:0 20px 60px rgba(0,0,0,0.25);
                 font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;
                 animation: tpms-slide-in .22s cubic-bezier(.16,1,.3,1);
             ">
@@ -93,40 +113,36 @@ geotab.addin.tirePressureAddin = function (api, state) {
                 <div style="display:flex; align-items:center; gap:10px; margin-bottom:22px;">
                     <span style="font-size:22px;">⚙️</span>
                     <div>
-                        <div style="font-size:17px; font-weight:700; color:#2d3436;">Configuración de Presiones</div>
-                        <div style="font-size:12px; color:#b2bec3; margin-top:2px;">Los valores se guardan en este navegador</div>
+                        <div style="font-size:17px; font-weight:700; color:#2d3436;">Configuración Umbrales</div>
+                        <div style="font-size:12px; color:#b2bec3; margin-top:2px;">Se guardan en el navegador</div>
                     </div>
                 </div>
 
-                <div style="font-size:11px; font-weight:700; color:#0984e3; letter-spacing:.8px; margin-bottom:10px;">RANGO ÓPTIMO (verde)</div>
+                <div style="font-size:11px; font-weight:700; color:#0984e3; letter-spacing:.8px; margin-bottom:10px;">PRESIÓN ÓPTIMA (Verde)</div>
                 <div class="tpms-row">
-                    <div class="tpms-field">
-                        <label>Mínimo (bar)</label>
-                        <input id="cfg-optMin" type="number" step="0.1" min="0" max="20">
-                    </div>
-                    <div class="tpms-field">
-                        <label>Máximo (bar)</label>
-                        <input id="cfg-optMax" type="number" step="0.1" min="0" max="20">
-                    </div>
+                    <div class="tpms-field"><label>Mín (<span style="text-transform:lowercase">bar</span>)</label><input id="cfg-optMin" type="number" step="0.1" min="0" max="20"></div>
+                    <div class="tpms-field"><label>Máx (<span style="text-transform:lowercase">bar</span>)</label><input id="cfg-optMax" type="number" step="0.1" min="0" max="20"></div>
                 </div>
 
                 <div class="tpms-sep"></div>
 
-                <div style="font-size:11px; font-weight:700; color:#f7b731; letter-spacing:.8px; margin-bottom:10px;">RANGO DE AVISO (amarillo)</div>
+                <div style="font-size:11px; font-weight:700; color:#f7b731; letter-spacing:.8px; margin-bottom:10px;">PRESIÓN AVISO (Amarillo)</div>
                 <div class="tpms-row">
-                    <div class="tpms-field">
-                        <label>Mínimo (bar)</label>
-                        <input id="cfg-warnMin" type="number" step="0.1" min="0" max="20">
-                    </div>
-                    <div class="tpms-field">
-                        <label>Máximo (bar)</label>
-                        <input id="cfg-warnMax" type="number" step="0.1" min="0" max="20">
-                    </div>
+                    <div class="tpms-field"><label>Mín (<span style="text-transform:lowercase">bar</span>)</label><input id="cfg-warnMin" type="number" step="0.1" min="0" max="20"></div>
+                    <div class="tpms-field"><label>Máx (<span style="text-transform:lowercase">bar</span>)</label><input id="cfg-warnMax" type="number" step="0.1" min="0" max="20"></div>
                 </div>
 
                 <div class="tpms-sep"></div>
 
-                <div style="font-size:11px; font-weight:700; color:#eb3b5a; letter-spacing:.8px; margin-bottom:10px;">DESCOMPENSACIÓN ENTRE RUEDAS GEMELAS</div>
+                <div style="font-size:11px; font-weight:700; color:#eb3b5a; letter-spacing:.8px; margin-bottom:10px;">LÍMITES TEMPERATURA</div>
+                <div class="tpms-row">
+                    <div class="tpms-field"><label>Aviso (°C)</label><input id="cfg-tempWarn" type="number" step="1" min="0" max="150" title="A partir de este valor se muestra advertencia amarilla"></div>
+                    <div class="tpms-field"><label>Crítico (°C)</label><input id="cfg-tempCrit" type="number" step="1" min="0" max="150" title="A partir de este valor se muestra alerta roja"></div>
+                </div>
+
+                <div class="tpms-sep"></div>
+
+                <div style="font-size:11px; font-weight:700; color:#eb3b5a; letter-spacing:.8px; margin-bottom:10px;">DESCOMPENSACIÓN GEMELAS</div>
                 <div class="tpms-field">
                     <label>Tolerancia máxima (%)</label>
                     <input id="cfg-devPct" type="number" step="1" min="1" max="50">
@@ -153,11 +169,13 @@ geotab.addin.tirePressureAddin = function (api, state) {
         });
         document.getElementById("cfg-save").addEventListener("click", function () {
             const vals = {
-                optMin:  parseFloat(document.getElementById("cfg-optMin").value),
-                optMax:  parseFloat(document.getElementById("cfg-optMax").value),
-                warnMin: parseFloat(document.getElementById("cfg-warnMin").value),
-                warnMax: parseFloat(document.getElementById("cfg-warnMax").value),
-                devPct:  parseFloat(document.getElementById("cfg-devPct").value)
+                optMin:   parseFloat(document.getElementById("cfg-optMin").value),
+                optMax:   parseFloat(document.getElementById("cfg-optMax").value),
+                warnMin:  parseFloat(document.getElementById("cfg-warnMin").value),
+                warnMax:  parseFloat(document.getElementById("cfg-warnMax").value),
+                devPct:   parseFloat(document.getElementById("cfg-devPct").value),
+                tempWarn: parseFloat(document.getElementById("cfg-tempWarn").value),
+                tempCrit: parseFloat(document.getElementById("cfg-tempCrit").value)
             };
             if (Object.values(vals).some(isNaN)) { alert("Por favor, revisa los valores introducidos."); return; }
             cfg = vals;
@@ -165,18 +183,19 @@ geotab.addin.tirePressureAddin = function (api, state) {
             closeModal();
             window._tpms_reload && window._tpms_reload();
         });
-        // Cerrar al hacer clic en el fondo
-        overlay.addEventListener("click", function (e) {
+        overlay.addEventListener("mousedown", function (e) {
             if (e.target === overlay) closeModal();
         });
     }
 
     function fillModalFields() {
-        document.getElementById("cfg-optMin").value  = cfg.optMin;
-        document.getElementById("cfg-optMax").value  = cfg.optMax;
-        document.getElementById("cfg-warnMin").value = cfg.warnMin;
-        document.getElementById("cfg-warnMax").value = cfg.warnMax;
-        document.getElementById("cfg-devPct").value  = cfg.devPct;
+        document.getElementById("cfg-optMin").value   = cfg.optMin;
+        document.getElementById("cfg-optMax").value   = cfg.optMax;
+        document.getElementById("cfg-warnMin").value  = cfg.warnMin;
+        document.getElementById("cfg-warnMax").value  = cfg.warnMax;
+        document.getElementById("cfg-devPct").value   = cfg.devPct;
+        document.getElementById("cfg-tempWarn").value = cfg.tempWarn;
+        document.getElementById("cfg-tempCrit").value = cfg.tempCrit;
     }
 
     function openModal() {
@@ -199,12 +218,12 @@ geotab.addin.tirePressureAddin = function (api, state) {
         const legendHtml = `
             <div style="background:white; border-radius:8px; padding:15px; margin-bottom:20px; box-shadow:0 2px 4px rgba(0,0,0,0.05); font-family:sans-serif; font-size:13px; color:#2d3436; border-left:4px solid #0984e3; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
                 <div>
-                    <strong style="display:block; margin-bottom:10px; font-size:14px;">Leyenda de Alertas Camiones (Datos última semana):</strong>
+                    <strong style="display:block; margin-bottom:10px; font-size:14px;">Leyenda de Alertas (Datos 7 días):</strong>
                     <div style="display:flex; flex-wrap:wrap; gap:15px; align-items:center;">
-                        <div style="display:flex; align-items:center; gap:6px;"><div style="width:16px; height:16px; background:#576574; border-radius:4px;"></div> Óptimo (${cfg.optMin} – ${cfg.optMax} bar)</div>
-                        <div style="display:flex; align-items:center; gap:6px;"><div style="width:16px; height:16px; background:#f7b731; border-radius:4px;"></div> Aviso Leve</div>
-                        <div style="display:flex; align-items:center; gap:6px;"><div style="width:16px; height:16px; background:#eb3b5a; border-radius:4px;"></div> Alerta Crítica</div>
-                        <div style="display:flex; align-items:center; gap:6px;"><div style="width:16px; height:16px; border:2px solid #eb3b5a; background:#ffeaa7; border-radius:4px;"></div> Desviación > ${cfg.devPct}%</div>
+                        <div style="display:flex; align-items:center; gap:6px;"><div style="width:16px; height:16px; background:#576574; border-radius:4px;"></div> Óptimo (${cfg.optMin}–${cfg.optMax}bar | <${cfg.tempWarn}°C)</div>
+                        <div style="display:flex; align-items:center; gap:6px;"><div style="width:16px; height:16px; background:#f7b731; border-radius:4px;"></div> Aviso (≥${cfg.tempWarn}°C)</div>
+                        <div style="display:flex; align-items:center; gap:6px;"><div style="width:16px; height:16px; background:#eb3b5a; border-radius:4px;"></div> Alerta Crítica (≥${cfg.tempCrit}°C)</div>
+                        <div style="display:flex; align-items:center; gap:6px;"><div style="width:16px; height:16px; border:2px solid #eb3b5a; background:#ffeaa7; border-radius:4px;"></div> Desv. Eje > ${cfg.devPct}%</div>
                     </div>
                 </div>
                 <button id="tpms-settings-btn" style="
@@ -212,7 +231,7 @@ geotab.addin.tirePressureAddin = function (api, state) {
                     background:#0984e3; color:white; border:none; border-radius:8px;
                     font-size:13px; font-weight:600; cursor:pointer;
                     box-shadow:0 2px 8px rgba(9,132,227,0.35); transition:opacity .15s;
-                    white-space:nowrap; flex-shrink:0;
+                    white-space:nowrap; flex-shrink:0; margin-left:auto;
                 " onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
                     ⚙️ Configurar umbrales
                 </button>
@@ -223,7 +242,13 @@ geotab.addin.tirePressureAddin = function (api, state) {
 
         vehicles.forEach(v => {
             const hasCritical = v.maxWeight === 3;
-            const fmtVal = (val) => val ? (val / 100000).toFixed(1) + " bar" : "-- bar";
+            
+            // Función para formatear el valor de presión y temperatura combinado
+            const fmtVal = (pVal, tVal) => {
+                let pStr = pVal ? (pVal / 100000).toFixed(1) + " bar" : "-- bar";
+                let tStr = tVal !== null && tVal !== undefined && tVal > 0 ? Math.round(tVal) + "°C" : "--°C";
+                return `${pStr} / ${tStr}`;
+            };
             const valTextColor = (c) => c === "#576574" ? "#747d8c" : c;
 
             let alerts = [...new Set([
@@ -236,21 +261,23 @@ geotab.addin.tirePressureAddin = function (api, state) {
                 ? `<div style="background:#ffeaa7; color:#eb3b5a; font-size:11px; font-weight:bold; padding:6px; border-radius:4px; margin-bottom:15px; min-height:28px;">⚠️ ${alerts.join('<br>')}</div>`
                 : `<div style="height:40px;"></div>`;
 
-            const cardStyle = `background:white; border-radius:12px; padding:20px 10px; width:360px; box-shadow:0 4px 12px rgba(0,0,0,0.08); text-align:center; border:${hasCritical ? '2px solid #eb3b5a' : '1px solid #d1d8e0'};`;
-            const tireStyle = "position:absolute; width:22px; height:48px; border-radius:6px; z-index:2; box-shadow:inset -2px -2px 4px rgba(0,0,0,0.2), inset 2px 2px 4px rgba(255,255,255,0.2);";
+            // Aumentamos ancho a 440px para acomodar texto más largo "7.9 bar / 45°C"
+            const cardStyle = `background:white; border-radius:12px; padding:20px 10px; width:440px; box-shadow:0 4px 12px rgba(0,0,0,0.08); text-align:center; border:${hasCritical ? '2px solid #eb3b5a' : '1px solid #d1d8e0'};`;
+            const tireStyle = "position:absolute; width:22px; height:48px; border-radius:6px; z-index:2; box-shadow:inset -2px -2px 4px rgba(0,0,0,0.2), inset 2px 2px 4px rgba(255,255,255,0.2); transition: background 0.3s ease;";
 
-            const drawLabel = (side, topY, tireCenterX, val, tireColor) => {
+            const drawLabel = (side, topY, tireCenterX, pVal, tVal, tireColor) => {
                 const isLeft = side === 'left';
-                const text  = fmtVal(val);
+                const text  = fmtVal(pVal, tVal);
                 const color = valTextColor(tireColor);
-                const lineLen = tireCenterX - 75;
+                // Calculamos longitud de línea sabiendo que ocupamos 120px para la zona de texto exterior
+                const lineLen = tireCenterX - 110; 
                 if (isLeft) return `
-                    <div style="position:absolute; top:${topY}px; left:75px; width:${lineLen}px; border-bottom:1px solid ${color}; z-index:0; opacity:0.6;"></div>
-                    <div style="position:absolute; top:${topY - 14}px; left:10px; width:60px; text-align:right; font-size:14px; color:${color}; font-weight:600; font-family:sans-serif;">${text}</div>
+                    <div style="position:absolute; top:${topY}px; left:110px; width:${lineLen}px; border-bottom:1px solid ${color}; z-index:0; opacity:0.6;"></div>
+                    <div style="position:absolute; top:${topY - 14}px; left:5px; width:100px; text-align:right; font-size:14px; color:${color}; font-weight:600; font-family:sans-serif; letter-spacing: -0.3px;">${text}</div>
                 `;
                 return `
-                    <div style="position:absolute; top:${topY}px; right:75px; width:${lineLen}px; border-bottom:1px solid ${color}; z-index:0; opacity:0.6;"></div>
-                    <div style="position:absolute; top:${topY - 14}px; right:10px; width:60px; text-align:left; font-size:14px; color:${color}; font-weight:600; font-family:sans-serif;">${text}</div>
+                    <div style="position:absolute; top:${topY}px; right:110px; width:${lineLen}px; border-bottom:1px solid ${color}; z-index:0; opacity:0.6;"></div>
+                    <div style="position:absolute; top:${topY - 14}px; right:5px; width:100px; text-align:left; font-size:14px; color:${color}; font-weight:600; font-family:sans-serif; letter-spacing: -0.3px;">${text}</div>
                 `;
             };
 
@@ -258,8 +285,10 @@ geotab.addin.tirePressureAddin = function (api, state) {
                 <div style="${cardStyle}">
                     <div style="font-size:16px; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:#2d3436;"><strong>${v.name}</strong></div>
                     ${alertHtml}
-                    <div style="position:relative; width:360px; height:260px; margin:0 auto; user-select:none;">
-                        <div style="position:absolute; left:80px; width:200px; height:260px; z-index:1;">
+                    <!-- Aumentar width a 420px del wrapper interior -->
+                    <div style="position:relative; width:420px; height:260px; margin:0 auto; user-select:none;">
+                        <!-- SVG del camión posicionado a left: 110px -->
+                        <div style="position:absolute; left:110px; width:200px; height:260px; z-index:1;">
                             <svg width="200" height="260" viewBox="0 0 200 260" style="position:absolute; left:0; top:0; z-index:1;">
                                 <ellipse cx="30"  cy="45" rx="5" ry="3" fill="#f4f6f9" stroke="#b2bec3" stroke-width="1.5" transform="rotate(-30 30 45)" />
                                 <ellipse cx="170" cy="45" rx="5" ry="3" fill="#f4f6f9" stroke="#b2bec3" stroke-width="1.5" transform="rotate(30 170 45)" />
@@ -268,24 +297,29 @@ geotab.addin.tirePressureAddin = function (api, state) {
                             </svg>
                             <div style="${tireStyle} top:60px;  left:35px;  background:${v.status.E1_Izq.color}"></div>
                             <div style="${tireStyle} top:60px;  right:35px; background:${v.status.E1_Der.color}"></div>
+                            
                             <div style="${tireStyle} top:170px; left:25px;  background:${v.status.E2_ExtIzq.color}"></div>
                             <div style="${tireStyle} top:170px; left:50px;  background:${v.status.E2_IntIzq.color}"></div>
+                            
                             <div style="${tireStyle} top:170px; right:50px; background:${v.status.E2_IntDer.color}"></div>
                             <div style="${tireStyle} top:170px; right:25px; background:${v.status.E2_ExtDer.color}"></div>
                         </div>
-                        ${drawLabel('left',  85,  126, v.pressures.E1_Izq,    v.status.E1_Izq.color)}
-                        ${drawLabel('right', 85,  126, v.pressures.E1_Der,    v.status.E1_Der.color)}
-                        ${drawLabel('left',  182, 141, v.pressures.E2_IntIzq, v.status.E2_IntIzq.color)}
-                        ${drawLabel('left',  205, 116, v.pressures.E2_ExtIzq, v.status.E2_ExtIzq.color)}
-                        ${drawLabel('right', 182, 141, v.pressures.E2_IntDer, v.status.E2_IntDer.color)}
-                        ${drawLabel('right', 205, 116, v.pressures.E2_ExtDer, v.status.E2_ExtDer.color)}
+                        
+                        <!-- Coordenadas calculadas sumando el padding izquierdo de 110px -->
+                        ${drawLabel('left',  85,  110 + 35 + 11, v.pressures.E1_Izq,    v.temps.E1_Izq,    v.status.E1_Izq.color)}
+                        ${drawLabel('right', 85,  110 + 35 + 11, v.pressures.E1_Der,    v.temps.E1_Der,    v.status.E1_Der.color)}
+                        
+                        ${drawLabel('left',  182, 110 + 50 + 11, v.pressures.E2_IntIzq, v.temps.E2_IntIzq, v.status.E2_IntIzq.color)}
+                        ${drawLabel('left',  205, 110 + 25 + 11, v.pressures.E2_ExtIzq, v.temps.E2_ExtIzq, v.status.E2_ExtIzq.color)}
+                        
+                        ${drawLabel('right', 182, 110 + 50 + 11, v.pressures.E2_IntDer, v.temps.E2_IntDer, v.status.E2_IntDer.color)}
+                        ${drawLabel('right', 205, 110 + 25 + 11, v.pressures.E2_ExtDer, v.temps.E2_ExtDer, v.status.E2_ExtDer.color)}
                     </div>
                 </div>`;
         });
 
         container.innerHTML = html + '</div>';
 
-        // Vinculamos el botón de configuración tras inyectar el HTML
         const btn = document.getElementById("tpms-settings-btn");
         if (btn) btn.addEventListener("click", openModal);
     }
@@ -298,40 +332,65 @@ geotab.addin.tirePressureAddin = function (api, state) {
         api.call("Get", { typeName: "Device" }, function (devices) {
             const fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-            const calls = Object.values(diagIds).map(id => ["Get", {
-                typeName: "StatusData",
-                search: { diagnosticSearch: { id: id }, fromDate: fromDate }
-            }]);
+            // Llamadas combinadas para presiones y temperaturas
+            const calls = [];
+            Object.values(diagIds).forEach(id => {
+                calls.push(["Get", { typeName: "StatusData", search: { diagnosticSearch: { id: id }, fromDate: fromDate } }]);
+            });
+            Object.values(diagTempIds).forEach(id => {
+                calls.push(["Get", { typeName: "StatusData", search: { diagnosticSearch: { id: id }, fromDate: fromDate } }]);
+            });
 
             api.multiCall(calls, function (results) {
                 const masterData = {};
-                devices.forEach(d => masterData[d.id] = { E1_Izq: null, E1_Der: null, E2_ExtIzq: null, E2_IntIzq: null, E2_IntDer: null, E2_ExtDer: null });
+                devices.forEach(d => {
+                    masterData[d.id] = { 
+                        press: { E1_Izq: null, E1_Der: null, E2_ExtIzq: null, E2_IntIzq: null, E2_IntDer: null, E2_ExtDer: null },
+                        temp:  { E1_Izq: null, E1_Der: null, E2_ExtIzq: null, E2_IntIzq: null, E2_IntDer: null, E2_ExtDer: null }
+                    };
+                });
 
                 const keys = ['E1_Izq', 'E1_Der', 'E2_ExtIzq', 'E2_IntIzq', 'E2_IntDer', 'E2_ExtDer'];
 
-                results.forEach((statusList, index) => {
-                    const key = keys[index];
+                // Las primeras 6 llamadas son de presión
+                for (let i = 0; i < 6; i++) {
+                    const statusList = results[i];
+                    const key = keys[i];
                     statusList.sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
                     statusList.forEach(log => {
                         const devId = log.device.id;
-                        if (masterData[devId] && masterData[devId][key] === null) {
-                            masterData[devId][key] = log.data;
+                        if (masterData[devId] && masterData[devId].press[key] === null) {
+                            masterData[devId].press[key] = log.data;
                         }
                     });
-                });
+                }
+                
+                // Las siguientes 6 (índices 6 al 11) son de temperatura
+                for (let i = 6; i < 12; i++) {
+                    const statusList = results[i];
+                    const key = keys[i - 6];
+                    statusList.sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
+                    statusList.forEach(log => {
+                        const devId = log.device.id;
+                        if (masterData[devId] && masterData[devId].temp[key] === null) {
+                            masterData[devId].temp[key] = log.data;
+                        }
+                    });
+                }
 
                 const fleetData = devices.map(d => {
-                    const p = masterData[d.id];
+                    const p = masterData[d.id].press;
+                    const t = masterData[d.id].temp;
                     const s = {
-                        E1_Izq:    calculateStatus(p.E1_Izq, p.E1_Der),
-                        E1_Der:    calculateStatus(p.E1_Der, p.E1_Izq),
-                        E2_ExtIzq: calculateStatus(p.E2_ExtIzq, p.E2_IntIzq),
-                        E2_IntIzq: calculateStatus(p.E2_IntIzq, p.E2_ExtIzq),
-                        E2_IntDer: calculateStatus(p.E2_IntDer, p.E2_ExtDer),
-                        E2_ExtDer: calculateStatus(p.E2_ExtDer, p.E2_IntDer)
+                        E1_Izq:    calculateStatus(p.E1_Izq, p.E1_Der, t.E1_Izq),
+                        E1_Der:    calculateStatus(p.E1_Der, p.E1_Izq, t.E1_Der),
+                        E2_ExtIzq: calculateStatus(p.E2_ExtIzq, p.E2_IntIzq, t.E2_ExtIzq),
+                        E2_IntIzq: calculateStatus(p.E2_IntIzq, p.E2_ExtIzq, t.E2_IntIzq),
+                        E2_IntDer: calculateStatus(p.E2_IntDer, p.E2_ExtDer, t.E2_IntDer),
+                        E2_ExtDer: calculateStatus(p.E2_ExtDer, p.E2_IntDer, t.E2_ExtDer)
                     };
                     return {
-                        name: d.name, pressures: p, status: s,
+                        name: d.name, pressures: p, temps: t, status: s,
                         maxWeight: Math.max(...Object.values(s).map(x => x.weight))
                     };
                 });
@@ -345,7 +404,6 @@ geotab.addin.tirePressureAddin = function (api, state) {
     return {
         initialize: function (api, state, callback) { callback(); },
         focus: function (api, state) {
-            // Exponemos loadData para que el modal pueda recargar la flota
             window._tpms_reload = loadData;
             loadData();
         },
