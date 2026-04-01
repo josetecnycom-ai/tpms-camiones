@@ -14,8 +14,8 @@ geotab.addin.tirePressureAddin = function (api, state) {
     };
 
     const diagTempIds = {
-        E1_Izq:    "aMc7Tbwr7oEG_65ZlQIhe8A",
-        E1_Der:    "a1ZcS5E35KkOVBXxcqSCihQ",
+        E1_Izq:    "a1ZcS5E35KkOVBXxcqSCihQ",
+        E1_Der:    "ayIh-pPu-BUyW35gJQDE-eQ",
         E2_ExtIzq: "aB1AI1v7VZEuEpL9DL2pX5w",
         E2_IntIzq: "aJ6V9PwpaWEK6YwvKSLxuDg",
         E2_IntDer: "ajfPPsCzHZkOMSeHqdB122g",
